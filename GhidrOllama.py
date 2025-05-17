@@ -308,19 +308,12 @@ class Config:
 def interact_with_ollama(model, system_prompt, prompt, c_code):
     monitor.setMessage("Model " + model + " is processing input...")
     print("\n>> Explanation:")
-    url = CONFIG.get_endpoint("/api/generate")
-    if prompt == "":
-        data = {
-            "model": model,
-            "system": system_prompt,
-            "prompt": CONFIG.project_prompt + "\n\n" + c_code
-        }
-    else:
-        data = {
-            "model": model,
-            "system": system_prompt,
-            "prompt": CONFIG.project_prompt + "\n\n" + prompt + "\n\n" + c_code
-        }
+    url = CONFIG.get_endpoint("/v1/chat/completions")
+    data = {
+        "model": model,
+        "system": system_prompt,
+        "prompt": CONFIG.project_prompt + ("\n\n" if prompt else "") + prompt+ "\n\n" + c_code
+    }
     data = json.dumps(data)
 
     req = urllib2.Request(url, data, {'Content-Type': 'application/json'})
