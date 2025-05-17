@@ -27,10 +27,12 @@ class Config:
             raise RuntimeError("Error loading configuration file.")
 
         try:
-            self.host = self.config["host"]
-            self.port = self.config["port"]
-            self.model = self.config["model"]
-            self.scheme = self.config["scheme"]
+            self.server_type = self.config["server_type"] # Ollama or LMStudio
+            self.host = self.config["host"] # IP or hostname of the server
+            self.port = self.config["port"] # Port of the LLM server
+            self.model = self.config["model"] # Model name to use
+            self.scheme = self.config["scheme"] # http or https
+
             # Whether LLM output should be saved as comments.
             # Default is False because output is unreliable and may not be useful.
             self.set_comments = self.config["set_comments"] 
@@ -351,6 +353,49 @@ def interact_with_ollama(model, system_prompt, prompt, c_code):
 
     return response_text, stats_summary
 
+# General function to interact with the Ollama API
+def interact_with_lmstudio(model, system_prompt, prompt, c_code):
+    monitor.setMessage("Model " + model + " is processing input...")
+    print("\n>> Explanation:")
+    url = CONFIG.get_endpoint("/v1/chat/completions")
+    data = {
+        "model": model,
+        "messages": [
+            {"role": "assistant", "content": system_prompt},
+            {"role": "user", "content": CONFIG.project_prompt + ("\n\n" if prompt else "") + prompt + "\n\n" + c_code}
+        ],
+        "stream": False
+    }
+
+    data = json.dumps(data)
+    #print(data)
+
+    req = urllib2.Request(url, data, {'Content-Type': 'application/json'})
+    try:
+        response = urllib2.urlopen(req)
+    except urllib2.HTTPError as e:
+        print("HTTP Error {}: {}".format(e.code, e.reason))
+        return None, None
+
+    json_response = json.loads(response.read())
+ 
+    response_text = json_response["choices"][0]["message"]["content"]
+    stats_summary = {}
+    built_line = ""
+
+    monitor.setMessage("Done!")
+
+    return response_text, stats_summary
+
+
+def interact_with_model(model, system_prompt, prompt, c_code):
+    if CONFIG.server_type == "ollama":
+        return interact_with_ollama(model, system_prompt, prompt, c_code)
+    elif CONFIG.server_type == "lmstudio":
+        return interact_with_lmstudio(model, system_prompt, prompt, c_code)
+    else:
+        raise ValueError("Invalid server type: {}".format(CONFIG.server_type))
+
 
 # Function to suggest selected function name using the Ollama API
 def suggest_function_names_with_suggsted(model, c_code, suggestions):
@@ -371,7 +416,7 @@ def suggest_function_names_with_suggsted(model, c_code, suggestions):
         "an anonymous tip that the function may be one of the following, but "
         "the source is not 100% trustworthy, so be cautious: " + suggestions
     )
-    return interact_with_ollama(model, system_prompt, "", c_code)
+    return interact_with_model(model, system_prompt, "", c_code)
 
 
 def handle_explain_function(model):
@@ -387,7 +432,7 @@ def handle_explain_function(model):
         "code to further their research."
     )
     
-    explanation, stats_summary = interact_with_ollama(
+    explanation, stats_summary = interact_with_model(
         model,
         system_prompt,
         "",
@@ -418,7 +463,7 @@ def handle_suggest_function_name(model):
         "guaranteed. Do not respond with anything other than the "
         "function name otherwise bad things will happen to llamas."
     )
-    explanation, stats_summary = interact_with_ollama(model, system_prompt, "", c_code)
+    explanation, stats_summary = interact_with_model(model, system_prompt, "", c_code)
 
     new_name = helper.extract_function_name(explanation)
     if (new_name != "") and CONFIG.auto_rename:
@@ -442,7 +487,7 @@ def handle_add_function_comments(model):
         "The only output the user wants is the C function with "
         "added code comments."
     )
-    explanation, stats_summary = interact_with_ollama(model, system_prompt, "", c_code)
+    explanation, stats_summary = interact_with_model(model, system_prompt, "", c_code)
 
     if CONFIG.set_comments:
         helper.add_comment_to_current_function(explanation)
@@ -468,7 +513,7 @@ def handle_tidy_up_function(model):
         "remain identical."
     )
     
-    explanation, stats_summary =  interact_with_ollama(model, system_prompt, "", c_code)
+    explanation, stats_summary =  interact_with_model(model, system_prompt, "", c_code)
 
     if CONFIG.set_comments:
         helper.add_comment_to_current_function(explanation)
@@ -489,7 +534,7 @@ def handle_ask_question_about_function(model):
         "your ability."
     )
 
-    explanation, stats_summary = interact_with_ollama(model, system_prompt, prompt, c_code)
+    explanation, stats_summary = interact_with_model(model, system_prompt, prompt, c_code)
 
     if CONFIG.set_comments:
         helper.add_comment_to_current_function(explanation)
@@ -514,7 +559,7 @@ def handle_identify_security_vulnerabilities(model):
         "SQL injections, etc. Ignore uninitialized variable issues, "
         "as this code is decompiled these are expected."
     )
-    explanation, stats_summary =  interact_with_ollama(model, system_prompt, "", c_code)
+    explanation, stats_summary =  interact_with_model(model, system_prompt, "", c_code)
     
     if CONFIG.set_comments:
         helper.add_comment_to_current_function(explanation)
@@ -568,7 +613,7 @@ def handle_explain_instruction(model):
             "the provided instruction, explain its purpose, and provide "
             "examples."
         )
-        explanation, stats_summary =  interact_with_ollama(model, system_prompt, prompt, instruction.toString())
+        explanation, stats_summary =  interact_with_model(model, system_prompt, prompt, instruction.toString())
 
         if CONFIG.set_comments:
             helper.add_comment_to_current_instruction(explanation)
@@ -593,7 +638,7 @@ def handle_explain_assembly(model):
             "what the provided instructions do."
         )
 
-        explanation, stats_summary = interact_with_ollama(model, "", prompt, assembly)
+        explanation, stats_summary = interact_with_model(model, "", prompt, assembly)
 
         if CONFIG.set_comments:
             helper.add_comment_to_current_instruction(explanation)
@@ -605,7 +650,7 @@ def handle_explain_assembly(model):
 
 def handle_general_prompt(model):
     prompt = askString("GhidrOllama", "Enter your prompt:")
-    explanation, stats_summary = interact_with_ollama(model, "You are an expert reverse engineer assistant called GhidrOllama", prompt, '')
+    explanation, stats_summary = interact_with_model(model, "You are an expert reverse engineer assistant called GhidrOllama", prompt, '')
     return stats_summary
 
 def handle_configure_ghidrollama():
