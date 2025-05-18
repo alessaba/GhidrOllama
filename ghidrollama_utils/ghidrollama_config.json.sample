@@ -6,5 +6,6 @@
     "project_prompt": "",
     "set_comments": false,
     "auto_rename": false,
-    "first_run": true 
+    "first_run": true,
+    "server_type": "ollama"
 }

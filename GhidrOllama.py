@@ -17,6 +17,7 @@ from ghidrollama_utils.ghidrollama_subscripts import leafblower
 from ghidra.util.exception import CancelledException
 from ghidra.util.task import TaskMonitor
 
+
 class Config:
     SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
     CONFIG_FILE_PATH = os.path.join(SCRIPT_DIR + "/ghidrollama_utils", "ghidrollama_config.json")
@@ -89,22 +90,25 @@ class Config:
         Makes a request to the Ollama API to fetch a list of installed models, prompts user to select which model to use.
         Requires a valid hostname/ip to be set first.
         """
-        
-        url = "{}://{}:{}/api/tags".format(scheme, host, port)
+
+        # Check if the server is LMStudio or Ollama
+        url = "{}://{}:{}/{}".format(scheme, host, port, ("api/tags" if CONFIG.server_type == "ollama" else "v1/models"))
+
         choice = None
         try:
             model_list_response = urllib2.urlopen(url)
             data = json.load(model_list_response)
 
             model_names = []
-            for model in data['models']:
-                model_names.append(model['name'])
+            for model in data['models' if CONFIG.server_type == "ollama" else 'data']:
+                model_names.append(model['name' if CONFIG.server_type == "ollama" else 'id'])
 
             if len(model_names) == 0:
                 print("No models found. Did you pull models via the Ollama CLI?")
                 return None
-
-            choice = askChoice("GhidrOllama", "Please choose the model you want to use:", model_names, "Model Selection")
+            
+            choice = askChoice("GhidrOllama", "Please select a model:", model_names, "Model Selection")
+            print("Selected model: " + choice)
 
         except urllib2.HTTPError as e:
             print("HTTP Error {}: {}".format(e.code, e.reason))
@@ -126,6 +130,7 @@ class Config:
         """
        
         c = self.config
+        
         try:
             if c["host"] == None or c["port"] == None or c["model"] == None or c["scheme"] == None or c["first_run"] == None or c["set_comments"] == None or c["auto_rename"] == None:
                 return False
@@ -164,6 +169,22 @@ class Config:
         """
         Guide the user through setting new configuration values.
         """
+
+        # Get server type
+        monitor.setMessage("Waiting for server type select...")
+        try:
+            server_type = askChoice("GhidrOllama", "Please choose the server type:", ["ollama", "lmstudio"], "Server Type Selection")
+        except CancelledException:
+            return False
+        print("Selected server type: " + server_type)
+        if server_type == None:
+            return False
+        
+        # Update self.server_type immediately so that Config.select_model (via list_models)
+        # uses the newly selected server type.
+        self.server_type = server_type
+        self.config["server_type"] = server_type
+
         # Get hostname
         monitor.setMessage("Waiting for hostname")
         try:
@@ -250,7 +271,6 @@ class Config:
         self.save()
         return True
 
-
     def change_model(self, monitor):
         """Change the configured model and persist the change.
         Return true on success."""
@@ -308,7 +328,7 @@ class Config:
 def interact_with_ollama(model, system_prompt, prompt, c_code):
     monitor.setMessage("Model " + model + " is processing input...")
     print("\n>> Explanation:")
-    url = CONFIG.get_endpoint("/v1/chat/completions")
+    url = CONFIG.get_endpoint("/api/generate")
     data = {
         "model": model,
         "system": system_prompt,
